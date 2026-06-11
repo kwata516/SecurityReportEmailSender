@@ -1,0 +1,96 @@
+openapi: 3.0.0
+info:
+  title: Security Report Email Sender
+  description: >-
+    Security Copilot の調査結果を Azure Logic App (Consumption) の HTTP Webhook 経由で
+    メール送信するための API。Subject と Body を JSON ボディで受け渡す。
+    Body は HTML を URL エンコード (percent-encode) して渡すこと。
+  version: "1.0"
+servers:
+  # Logic App の HTTP トリガー callback URL のホスト部とワークフローパス。
+  # デプロイ済み (cfs202512 / Central US) の callback URL から取得した値:
+  #   REGION host : prod-26.centralus.logic.azure.com
+  #   WORKFLOW-ID : dd5da077737d454898e329919934c095
+  # 認証 (SAS の sig) は Security Copilot 側の ApiKey 認証 (QueryParams: sig) で付与する。
+  - url: https://prod-26.centralus.logic.azure.com/workflows/dd5da077737d454898e329919934c095/triggers/manual/paths
+paths:
+  /invoke:
+    post:
+      operationId: SendSecurityReportEmail
+      summary: 調査結果を HTML メールとして送信する
+      description: |
+        Security Copilot の調査結果を、あらかじめ Logic App 側で指定された宛先にメール送信する。
+        Subject と Body を JSON で渡す。Body は HTML を URL エンコードして渡すこと
+        (途中で HTML タグが変換・除去されるのを防ぐため)。Logic App 側で URL デコードしてから送信する。
+        #ExamplePrompts この調査結果をメールで送って
+        #ExamplePrompts 上記のレポートをメールで送信して
+        #ExamplePrompts Email this investigation summary to the SOC team
+      parameters:
+        - in: query
+          name: api-version
+          schema:
+            type: string
+            default: "2016-10-01"
+          required: true
+          description: Logic App トリガー API のバージョン。
+        - in: query
+          name: sp
+          schema:
+            type: string
+            default: "/triggers/manual/run"
+          required: true
+          description: SAS で許可された操作 (shared access permission)。
+        - in: query
+          name: sv
+          schema:
+            type: string
+            default: "1.0"
+          required: true
+          description: SAS バージョン。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - Subject
+                - Body
+              properties:
+                Subject:
+                  type: string
+                  description: >-
+                    メールの件名。HTML を含まないプレーンテキストを推奨。
+                    特殊文字が含まれる場合は URL エンコードして渡す。
+                Body:
+                  type: string
+                  description: >-
+                    メール本文 (HTML)。HTML マークアップが途中で変換されないように、
+                    必ず URL エンコード (percent-encode) して渡すこと。
+                    例: '<h1>Report</h1>' は '%3Ch1%3EReport%3C%2Fh1%3E' として渡す。
+                    Logic App 側で decodeUriComponent によりデコードしてから送信する。
+      responses:
+        "200":
+          description: メール送信成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+        "500":
+          description: メール送信失敗
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: failure
+                  message:
+                    type: string
