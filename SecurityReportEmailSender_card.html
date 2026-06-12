@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -217,10 +217,10 @@
       type: "Agent",
       name: "SecurityReportEmailSender",
       displayName: "Security Report Email Sender",
-      description: "Security Copilot の調査結果を HTML メールに整形し、Logic App (Webhook) 経由で外部に送信するエージェント。エージェント (GPT) が調査結果を HTML に整形し、API 子スキル経由で Logic App を呼び出す。HTML はそのまま (URL エンコードせずに) 渡し、Office 365 Outlook の Send an email (V2) で送信。宛先・送信元は Logic App 側で固定。認証は SAS トークン (将来 OAuth 2.0 対応予定)。",
+      description: "An agent that formats Security Copilot investigation results as an HTML email and sends them to an external address via an Azure Logic App (Webhook). On the Security Copilot side it runs as an agent (GPT) that formats the result as HTML and calls an API child skill to invoke the Logic App. The HTML is passed as-is (without URL encoding) and delivered through Office 365 Outlook's Send an email (V2). The recipient and sender are fixed on the Logic App side. Authentication uses a SAS token (OAuth 2.0 support planned).",
       auth: {
         type: "ApiKey",
-        details: "sig (SAS 署名) を QueryParams で付与"
+        details: "sig (SAS signature) appended via QueryParams"
       },
 
       skillGroups: [
@@ -230,10 +230,10 @@
             {
               name: "SendInvestigationReportByEmail",
               displayName: "Send Investigation Report by Email",
-              description: "調査結果を HTML メールに整形し、API 子スキル経由で Logic App を呼び出してメール送信する。宛先・送信元は Logic App 側で固定。",
+              description: "Formats the investigation result as an HTML email and calls the API child skill to invoke the Logic App for delivery. The recipient and sender are fixed on the Logic App side.",
               inputs: [
-                { name: "ReportContent", description: "メールで送信する調査結果の本文。直前のセッション出力やユーザー指定テキスト。", required: true, defaultValue: "" },
-                { name: "Subject", description: "メールの件名 (任意)。省略時はエージェントが生成。", required: false, defaultValue: "" }
+                { name: "ReportContent", description: "The investigation result body to email. Pass the previous Security Copilot session output or user-specified text.", required: true, defaultValue: "" },
+                { name: "Subject", description: "Email subject (optional). If omitted, the agent generates one from the report.", required: false, defaultValue: "" }
               ]
             }
           ]
@@ -244,13 +244,13 @@
             {
               name: "SendSecurityReportEmail",
               displayName: "Send Security Report Email",
-              description: "調査結果を HTML メールとして送信する API 子スキル。Subject と Body (生 HTML) を JSON で渡し、Logic App の Webhook を呼び出す。",
+              description: "API child skill that sends the investigation result as an HTML email. Passes Subject and Body (raw HTML) as JSON to invoke the Logic App webhook.",
               inputs: [
-                { name: "Subject", description: "メールの件名 (プレーンテキスト)", required: true, defaultValue: "" },
-                { name: "Body", description: "メール本文 (HTML をそのまま)", required: true, defaultValue: "" },
-                { name: "api-version", description: "Logic App トリガー API バージョン (単一値 enum で固定)", required: true, defaultValue: "2016-10-01" },
-                { name: "sp", description: "SAS で許可された操作 (単一値 enum で固定)", required: true, defaultValue: "/triggers/manual/run" },
-                { name: "sv", description: "SAS バージョン (単一値 enum で固定)", required: true, defaultValue: "1.0" }
+                { name: "Subject", description: "Email subject (plain text)", required: true, defaultValue: "" },
+                { name: "Body", description: "Email body (raw HTML, passed as-is)", required: true, defaultValue: "" },
+                { name: "api-version", description: "Logic App trigger API version (fixed via single-value enum)", required: true, defaultValue: "2016-10-01" },
+                { name: "sp", description: "SAS-permitted operation (fixed via single-value enum)", required: true, defaultValue: "/triggers/manual/run" },
+                { name: "sv", description: "SAS version (fixed via single-value enum)", required: true, defaultValue: "1.0" }
               ]
             }
           ]

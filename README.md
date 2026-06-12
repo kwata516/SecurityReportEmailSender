@@ -1,5 +1,191 @@
 # Security Report Email Sender Plugin
 
+> **Languages:** [English](#english) | [日本語](#日本語)
+
+---
+
+<a id="english"></a>
+
+# English
+
+An **agent** that formats Security Copilot investigation results as an HTML email and sends them to an external address via an Azure Logic App (Webhook). On the Security Copilot side it runs as an agent (GPT) that formats the result as HTML and then calls an API child skill to invoke the Logic App. The HTML is passed as-is (without URL encoding) in the JSON body.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User] -->|Email this investigation result| AG[Agent skill<br/>SendInvestigationReportByEmail<br/>HTML formatting]
+    AG -->|Child skill call| API[API skill<br/>SendSecurityReportEmail]
+    API -->|POST + SAS token sig<br/>JSON: Subject / Body raw HTML| LA[Logic App<br/>HTTP trigger]
+    LA --> PJ[Parse JSON]
+    PJ --> MAIL[Send an email V2<br/>To / From fixed]
+    MAIL --> RES[Response 200 / 500]
+```
+
+| Item | Detail |
+|------|--------|
+| Security Copilot side | **Agent** (standard agent). The Agent skill `SendInvestigationReportByEmail` orchestrates HTML formatting and delivery |
+| Child skill | API skill `SendSecurityReportEmail` (invokes the Logic App webhook) |
+| Email delivery | Office 365 Outlook connector's `Send an email (V2)` action |
+| Trigger (Logic App) | HTTP Request (Webhook), protected by a SAS signature (`sig`) |
+| Auth (API → Logic App) | SAS token. `sig` is appended via ApiKey (QueryParams); `api-version` / `sp` / `sv` are sent as fixed single-value enums in the OpenAPI spec. OAuth 2.0 support planned |
+| Recipient (To) / Sender (From) | Fixed on the Logic App side (ARM parameters `mailTo` / `mailFrom`) |
+| Message | `Subject` / `Body` passed as JSON. `Body` is passed as raw HTML (without URL encoding) |
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `SecurityReportEmailSender_LogicApp.json` | ARM template for the Logic App (Consumption) + Office 365 connection |
+| `SecurityReportEmailSender_ja.yaml` | Security Copilot agent manifest (Agent skill + API child skill) |
+| `openapi_email_sender.yaml` | OpenAPI spec template for the API child skill (`SendSecurityReportEmail`), parameterized via server variables (for publishing) |
+| `openapi_email_sender.local.yaml` | The real-value version of the above (`servers.url` expanded to the full URL). **Excluded via `.gitignore`, not published** |
+| `.gitignore` | Excludes real-value / secret files (`*.local.yaml` / `.env` / `*.secret*`, etc.) from being pushed |
+| `SecurityReportEmailSender_card.html` | Plugin card (visual summary) |
+
+> **Note: Managed Identity and `Send an email (V2)`**
+> The original spec mixed "grant email delivery permission via Managed Identity" with "use the `sendmail(v2)` action," but the two are technically incompatible. `Send an email (V2)` is an Office 365 Outlook connector action and uses an API connection (OAuth sign-in), not Managed Identity.
+> Anticipating a future migration to Power Automate, the highly portable **Office 365 Outlook connector approach** was adopted (Managed Identity is not available in Power Automate). Least privilege is ensured by authorizing the connection with a **send-only service account (shared mailbox)**.
+
+## Deployment Steps
+
+### 1. Deploy the Logic App
+
+```powershell
+$rg = "rg-securitycopilot"
+$location = "japaneast"
+
+# Create the resource group (if not already created)
+az group create --name $rg --location $location
+
+# Deploy the ARM template
+az deployment group create `
+  --resource-group $rg `
+  --template-file .\SecurityReportEmailSender_LogicApp.json `
+  --parameters `
+    logicAppName=SecurityReportEmailSender `
+    location=$location `
+    mailTo="soc-report@contoso.com" `
+    mailFrom="security-noreply@contoso.com"
+```
+
+### 2. Authorize the Office 365 connection
+
+The ARM template creates the connection resource, but OAuth authorization must be done manually.
+
+1. Open the Logic App in the Azure Portal.
+2. Open the **API connection** (`office365-securityreport`) and sign in from **General > Authorize this API**.
+3. Sign in with a **send-only service account** (for least privilege).
+4. If you specify a different address in `mailFrom`, that account must have **Send as / Send on behalf** permission on the target mailbox.
+
+> **Important: ARM redeploy resets connection authentication**
+> Because the `Microsoft.Web/connections` resource cannot contain OAuth tokens, **redeploying the ARM template clears the connection's authentication** (`Unauthenticated` / "Invalid connection"). Always redo step 2 after a redeploy.
+> Also, re-authenticating in the portal's Logic App designer may **create a new connection (e.g., `office365-1`) and switch the workflow reference to it**. In that case, it works as-is provided the authenticated connection name (e.g., `office365-1`) matches the workflow's reference key.
+
+### 3. Get the Webhook (callback) URL and SAS signature
+
+```powershell
+az rest --method post `
+  --uri "https://management.azure.com/subscriptions/<SUB-ID>/resourceGroups/$rg/providers/Microsoft.Logic/workflows/SecurityReportEmailSender/triggers/manual/listCallbackUrl?api-version=2016-10-01" `
+  --query "value" -o tsv
+```
+
+The retrieved callback URL has the following form. Note each value.
+
+```
+https://<REGION>.logic.azure.com/workflows/<WORKFLOW-ID>/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=<SIGNATURE>
+```
+
+- `<REGION>` and `<WORKFLOW-ID>` → set in the `servers` server variables (`regionHost` / `workflowId`) of `openapi_email_sender.yaml` (real-value version described below)
+- `<SIGNATURE>` (the `sig` value) → enter as the API key when installing the plugin in Security Copilot
+- `api-version` / `sp` / `sv` values → reflect in each query parameter's `enum` / `default` in `openapi_email_sender.yaml` (defaults are fine)
+
+> **Important: Fix the SAS parameters as single-value enums in the OpenAPI spec**
+> `api-version` / `sp` / `sv` are required for SAS signature validation. Security Copilot does not send query parameters that only have a `default` value, so a `default` alone is not transmitted and results in **401 Unauthorized**. To prevent this, each parameter is made a "constant" with `required: true` and a single-value `enum` (e.g., `enum: ["1.0"]`) so it is always sent. Only `sig` is appended via ApiKey auth (QueryParams).
+
+### 4. Publish the OpenAPI spec
+
+The region host and workflow GUID are environment-specific values. To avoid placing real values in a public repository, the template and the real-value version are separated.
+
+| File | Content | Publish |
+|------|---------|---------|
+| `openapi_email_sender.yaml` | Template parameterized with server variables (`regionHost` / `workflowId`). Defaults are placeholders. | ✅ push |
+| `openapi_email_sender.local.yaml` | Version with `servers.url` expanded to the full real URL. Excluded via `.gitignore`. | ❌ do not push |
+
+1. Replace `servers.url` in `openapi_email_sender.local.yaml` with the host part (`<REGION>.logic.azure.com`) and workflow GUID (`<WORKFLOW-ID>`) of the callback URL obtained in step 3.
+2. Host the **real-value version** (`openapi_email_sender.local.yaml`) at a publicly accessible URL (e.g., GitHub raw, Azure Blob Storage static site). Because Security Copilot does not expand server variables, host this version that has the full real URL.
+3. Set that URL in the `OpenApiSpecUrl` of `SecurityReportEmailSender_ja.yaml` (initial value is the placeholder `https://<YOUR-HOSTED-OPENAPI-URL>/...`). Do not point it directly at the public repository's template version URL (it will not work as a placeholder).
+
+> **Caution:** Treat `sig` (SAS signature), the region host, and the workflow GUID as sensitive information and do not include them in the public repository. Limit real values to `.gitignore`-excluded files such as `openapi_email_sender.local.yaml`.
+
+### 5. Install the agent in Security Copilot
+
+1. Security Copilot > **Manage plugins** > **Custom** > **Add plugin**.
+2. Upload `SecurityReportEmailSender_ja.yaml` (or specify the public URL).
+3. When prompted for the **API key** during installation, enter the `sig` value obtained in step 3.
+4. The **Security Report Email Sender** agent becomes enabled.
+
+## Verification
+
+### Smoke test with curl / PowerShell (API child skill / Logic App standalone)
+
+Pass the HTML as-is (without URL encoding) in `Body`. Because it is sent as a JSON string, HTML tags are preserved.
+
+```powershell
+$uri = "<the full callback URL from step 3>"
+$body = '{"Subject":"[TEST] Security Report","Body":"<h1>Test Report</h1><p>HTML body</p>"}'
+Invoke-WebRequest -Uri $uri -Method Post `
+  -ContentType "application/json; charset=utf-8" `
+  -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+```
+
+Checkpoints:
+- HTTP 200 with `{"status":"success", ...}` is returned.
+- The HTML renders correctly in the received email.
+
+### Running from the Security Copilot agent
+
+Following the output of an investigation session, invoke the agent inline.
+
+```
+Email the investigation result above using SendInvestigationReportByEmail
+```
+
+The agent formats the investigation result as HTML, calls the `SendSecurityReportEmail` child skill, and reports the delivery result.
+
+## About HTML body handling
+
+- The HTML in `Body` is passed **as-is, without URL encoding** in the JSON body. Because it is sent as a JSON string, HTML tags (such as `<h1>`) are preserved.
+- The Logic App side also performs no decoding; it passes the `Parse JSON` result directly to the `Send an email (V2)` body.
+- A previous configuration used URL encoding + `decodeUriComponent()` for decoding, but it was removed as unnecessary and a potential source of failures.
+
+## Future extension: OAuth 2.0 authentication
+
+It currently uses SAS token authentication. To switch to OAuth 2.0 in the future, the following configuration is envisioned.
+
+1. Place **Azure API Management** or **App Service Easy Auth (Entra)** in front of the Logic App and protect it with a Bearer token.
+2. Change `Authorization` in `SecurityReportEmailSender_ja.yaml` to `OAuthAuthorizationCodeFlow` (a template is included as a comment in the manifest).
+3. Register an enterprise application in Entra and add the callback URI `https://securitycopilot.microsoft.com/auth/v1/callback`.
+
+## Future extension: Migration to Power Automate
+
+`Send an email (V2)` and the HTTP trigger are common to both Logic Apps and Power Automate. SAS token authentication can also be used as-is, so when rebuilding the flow in Power Automate, the email delivery logic and the Security Copilot agent / API child skill can be reused almost without change. The API plugin format is maintained with this migration in mind.
+
+## Troubleshooting
+
+| Symptom | Cause | Resolution |
+|---------|-------|------------|
+| `401 Unauthorized` (when running the agent) | `api-version` / `sp` / `sv` not sent, so SAS signature validation fails. Or `sig` missing/incorrect | Make each query parameter a constant with a single-value `enum` + `required` in the OpenAPI spec. Re-enter `sig` in the plugin settings |
+| "Required capability is unavailable" / skill not invoked | The spec is invalid (e.g., a query string `?...` in the OpenAPI `paths` key), so the skill is not registered | Keep `paths` to just `/invoke` and define queries under `parameters`. After fixing, re-push the public URL and reload the plugin |
+| `500` + `content was not a valid JSON` | The Office 365 connection is unauthenticated (`Unauthenticated`) | Re-authenticate the connection in the portal (step 2). Verify the connection name matches the workflow reference key |
+| HTML tags shown as literal text | Email client display issue (the send itself succeeds) | Check the recipient's display settings |
+
+---
+
+<a id="日本語"></a>
+
+# 日本語
+
 Security Copilot の調査結果を HTML メールに整形し、Azure Logic App (Webhook) 経由で外部のメールアドレスに送信する **エージェント** です。Security Copilot 側はエージェント (GPT) として動作し、調査結果を HTML に整形してから API 子スキルで Logic App を呼び出します。HTML はそのまま (URL エンコードせずに) JSON ボディで受け渡します。
 
 ## 構成
@@ -33,7 +219,7 @@ flowchart LR
 | `openapi_email_sender.yaml` | API 子スキル (`SendSecurityReportEmail`) の OpenAPI 仕様テンプレート (server variables でパラメータ化、公開用) |
 | `openapi_email_sender.local.yaml` | 上記の実値版 (`servers.url` を完全 URL に展開)。**`.gitignore` で除外、公開しない** |
 | `.gitignore` | 実値版・シークレットファイル (`*.local.yaml` / `.env` / `*.secret*` 等) を push 対象から除外 |
-| `SecurityReportEmailSender_ja_card.html` | プラグインカード (視覚的サマリ) |
+| `SecurityReportEmailSender_card.html` | プラグインカード (視覚的サマリ) |
 
 > **メモ: Managed Identity と `Send an email (V2)` について**
 > 当初の仕様では「Managed Identity でメール配信権限を付与」と「`sendmail(v2)` アクションの使用」が併記されていましたが、両者は技術的に両立しません。`Send an email (V2)` は Office 365 Outlook コネクタのアクションで、Managed Identity ではなく API コネクション (OAuth サインイン) を使用します。
