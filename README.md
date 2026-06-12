@@ -44,7 +44,8 @@ flowchart LR
 | `SecurityReportEmailSender_LogicApp.json` | ARM template for the Logic App (Consumption) + Office 365 connection — **Japanese** metadata |
 | `SecurityReportEmailSender_LogicApp_en.json` | ARM template — **English** metadata |
 | `.gitignore` | Generic hygiene to avoid accidentally committing secrets (`.env` / `*.secret*` / `*.local.*`). The SAS `sig` is never stored in any file |
-| `SecurityReportEmailSender_card.html` | Plugin card (visual summary, English) |
+| `SecurityReportEmailSender_card.html` | Plugin card (visual summary) — **English** |
+| `SecurityReportEmailSender_ja_card.html` | Plugin card (visual summary) — **Japanese** |
 
 > **Note: Managed Identity and `Send an email (V2)`**
 > The original spec mixed "grant email delivery permission via Managed Identity" with "use the `sendmail(v2)` action," but the two are technically incompatible. `Send an email (V2)` is an Office 365 Outlook connector action and uses an API connection (OAuth sign-in), not Managed Identity.
@@ -224,7 +225,8 @@ flowchart LR
 | `SecurityReportEmailSender_LogicApp.json` | Logic App (Consumption) + Office 365 コネクションの ARM テンプレート — **日本語** メタデータ |
 | `SecurityReportEmailSender_LogicApp_en.json` | ARM テンプレート — **英語** メタデータ |
 | `.gitignore` | シークレット誤コミット防止用の汎用ルール (`.env` / `*.secret*` / `*.local.*`)。SAS の `sig` はどのファイルにも保存しない |
-| `SecurityReportEmailSender_card.html` | プラグインカード (視覚的サマリ、英語) |
+| `SecurityReportEmailSender_card.html` | プラグインカード (視覚的サマリ) — **英語** |
+| `SecurityReportEmailSender_ja_card.html` | プラグインカード (視覚的サマリ) — **日本語** |
 
 > **メモ: Managed Identity と `Send an email (V2)` について**
 > 当初の仕様では「Managed Identity でメール配信権限を付与」と「`sendmail(v2)` アクションの使用」が併記されていましたが、両者は技術的に両立しません。`Send an email (V2)` は Office 365 Outlook コネクタのアクションで、Managed Identity ではなく API コネクション (OAuth サインイン) を使用します。
