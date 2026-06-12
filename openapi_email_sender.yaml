@@ -4,7 +4,7 @@ info:
   description: >-
     Security Copilot の調査結果を Azure Logic App (Consumption) の HTTP Webhook 経由で
     メール送信するための API。Subject と Body を JSON ボディで受け渡す。
-    Body は HTML を URL エンコード (percent-encode) して渡すこと。
+    Body には HTML をそのまま (URL エンコードせずに) 渡す。
   version: "1.0"
 servers:
   # Logic App の HTTP トリガー callback URL のホスト部とワークフローパス。
@@ -20,33 +20,38 @@ paths:
       summary: 調査結果を HTML メールとして送信する
       description: |
         Security Copilot の調査結果を、あらかじめ Logic App 側で指定された宛先にメール送信する。
-        Subject と Body を JSON で渡す。Body は HTML を URL エンコードして渡すこと
-        (途中で HTML タグが変換・除去されるのを防ぐため)。Logic App 側で URL デコードしてから送信する。
+        Subject と Body を JSON で渡す。Body には HTML をそのまま渡す (URL エンコード不要)。
         #ExamplePrompts この調査結果をメールで送って
         #ExamplePrompts 上記のレポートをメールで送信して
         #ExamplePrompts Email this investigation summary to the SOC team
       parameters:
+        # SAS の固定クエリ (api-version / sp / sv) は単一値の enum で「定数」として固定する。
+        # default だけでは Security Copilot が送信せず 401 になるため、required + 単一 enum とし、
+        # 必ずこの値が送信されるようにする。認証で付与される sig と合わせて完全な SAS URL を構成する。
         - in: query
           name: api-version
+          required: true
           schema:
             type: string
+            enum: ["2016-10-01"]
             default: "2016-10-01"
-          required: true
-          description: Logic App トリガー API のバージョン。
+          description: Logic App トリガー API のバージョン。必ず 2016-10-01 を使用する。
         - in: query
           name: sp
+          required: true
           schema:
             type: string
+            enum: ["/triggers/manual/run"]
             default: "/triggers/manual/run"
-          required: true
-          description: SAS で許可された操作 (shared access permission)。
+          description: SAS で許可された操作。必ず /triggers/manual/run を使用する。
         - in: query
           name: sv
+          required: true
           schema:
             type: string
+            enum: ["1.0"]
             default: "1.0"
-          required: true
-          description: SAS バージョン。
+          description: SAS バージョン。必ず 1.0 を使用する。
       requestBody:
         required: true
         content:
@@ -61,14 +66,12 @@ paths:
                   type: string
                   description: >-
                     メールの件名。HTML を含まないプレーンテキストを推奨。
-                    特殊文字が含まれる場合は URL エンコードして渡す。
                 Body:
                   type: string
                   description: >-
-                    メール本文 (HTML)。HTML マークアップが途中で変換されないように、
-                    必ず URL エンコード (percent-encode) して渡すこと。
-                    例: '<h1>Report</h1>' は '%3Ch1%3EReport%3C%2Fh1%3E' として渡す。
-                    Logic App 側で decodeUriComponent によりデコードしてから送信する。
+                    メール本文 (HTML)。HTML をそのまま渡す (URL エンコード不要)。
+                    JSON 文字列として送信されるため HTML タグはそのまま保持される。
+                    例: '<h1>Report</h1><p>本文</p>'
       responses:
         "200":
           description: メール送信成功
