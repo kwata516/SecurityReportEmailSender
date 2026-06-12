@@ -7,23 +7,10 @@ info:
     Body には HTML をそのまま (URL エンコードせずに) 渡す。
   version: "1.0"
 servers:
-  # Logic App の HTTP トリガー callback URL のホスト部とワークフローパスをパラメータ化している。
-  # 実値はこのファイルに直接書かず、OpenAPI の server variables (regionHost / workflowId) で指定する。
-  #   - regionHost : callback URL のホスト部 (例: prod-00.<region>.logic.azure.com)
-  #   - workflowId : ワークフロー GUID (callback URL の /workflows/<ここ>/ 部分)
-  # 公開リポジトリにはプレースホルダのみを置き、実値版は openapi_email_sender.local.yaml
-  # (.gitignore 対象) に分離してそこから公開ホスト (GitHub raw 等) に配置する。
+  # Logic App の HTTP トリガー callback URL のホスト部とワークフローパス。
+  # リージョンホストとワークフロー GUID はこのファイルに直接記載する (ユーザー許可済み)。
   # 認証 (SAS の sig) は Security Copilot 側の ApiKey 認証 (QueryParams: sig) で付与する。
-  - url: https://{regionHost}/workflows/{workflowId}/triggers/manual/paths
-    variables:
-      regionHost:
-        # 例: prod-00.<region>.logic.azure.com (listCallbackUrl の結果から転記)
-        default: REPLACE-WITH-YOUR-REGION-HOST
-        description: Logic App callback URL のホスト部。自身のデプロイ値に置き換える。
-      workflowId:
-        # callback URL の /workflows/<WORKFLOW-ID>/ 部分の GUID
-        default: REPLACE-WITH-YOUR-WORKFLOW-ID
-        description: Logic App ワークフローの GUID。自身のデプロイ値に置き換える。
+  - url: https://prod-26.centralus.logic.azure.com/workflows/dd5da077737d454898e329919934c095/triggers/manual/paths
 paths:
   /invoke:
     post:

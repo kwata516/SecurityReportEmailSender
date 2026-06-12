@@ -1,0 +1,98 @@
+openapi: 3.0.0
+info:
+  title: Security Report Email Sender
+  description: >-
+    API for sending Security Copilot investigation results by email via the HTTP Webhook of an
+    Azure Logic App (Consumption). Subject and Body are passed in the JSON body. Body is passed
+    as raw HTML (without URL encoding).
+  version: "1.0"
+servers:
+  # Host part and workflow path of the Logic App HTTP trigger callback URL.
+  # Region host and workflow GUID are included directly (the user permits this).
+  # Authentication (the SAS `sig`) is supplied via Security Copilot ApiKey auth (QueryParams: sig).
+  - url: https://prod-26.centralus.logic.azure.com/workflows/dd5da077737d454898e329919934c095/triggers/manual/paths
+paths:
+  /invoke:
+    post:
+      operationId: SendSecurityReportEmail
+      summary: Send an investigation result as an HTML email
+      description: |
+        Sends a Security Copilot investigation result to the recipient pre-configured on the Logic App side.
+        Subject and Body are passed as JSON. Body is passed as raw HTML (no URL encoding required).
+        #ExamplePrompts Email this investigation result
+        #ExamplePrompts Send the report above by email
+        #ExamplePrompts Email this investigation summary to the SOC team
+      parameters:
+        # The fixed SAS query parameters (api-version / sp / sv) are pinned as "constants" with a
+        # single-value enum. With only a `default`, Security Copilot would not send them, resulting in
+        # 401, so they are marked required with a single enum so the value is always sent. Combined with
+        # the `sig` supplied by auth, this forms the complete SAS URL.
+        - in: query
+          name: api-version
+          required: true
+          schema:
+            type: string
+            enum: ["2016-10-01"]
+            default: "2016-10-01"
+          description: Logic App trigger API version. Always use 2016-10-01.
+        - in: query
+          name: sp
+          required: true
+          schema:
+            type: string
+            enum: ["/triggers/manual/run"]
+            default: "/triggers/manual/run"
+          description: SAS-permitted operation. Always use /triggers/manual/run.
+        - in: query
+          name: sv
+          required: true
+          schema:
+            type: string
+            enum: ["1.0"]
+            default: "1.0"
+          description: SAS version. Always use 1.0.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - Subject
+                - Body
+              properties:
+                Subject:
+                  type: string
+                  description: >-
+                    Email subject. Plain text (no HTML) recommended.
+                Body:
+                  type: string
+                  description: >-
+                    Email body (HTML). Pass the HTML as-is (no URL encoding required).
+                    Because it is sent as a JSON string, HTML tags are preserved.
+                    Example: '<h1>Report</h1><p>Body</p>'
+      responses:
+        "200":
+          description: Email sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+        "500":
+          description: Failed to send email
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: failure
+                  message:
+                    type: string

@@ -36,12 +36,14 @@ flowchart LR
 
 | File | Description |
 |------|-------------|
-| `SecurityReportEmailSender_LogicApp.json` | ARM template for the Logic App (Consumption) + Office 365 connection |
-| `SecurityReportEmailSender_ja.yaml` | Security Copilot agent manifest (Agent skill + API child skill) |
-| `openapi_email_sender.yaml` | OpenAPI spec template for the API child skill (`SendSecurityReportEmail`), parameterized via server variables (for publishing) |
-| `openapi_email_sender.local.yaml` | The real-value version of the above (`servers.url` expanded to the full URL). **Excluded via `.gitignore`, not published** |
-| `.gitignore` | Excludes real-value / secret files (`*.local.yaml` / `.env` / `*.secret*`, etc.) from being pushed |
-| `SecurityReportEmailSender_card.html` | Plugin card (visual summary) |
+| `SecurityReportEmailSender_ja.yaml` | Security Copilot agent manifest — **Japanese** (Agent skill + API child skill) |
+| `SecurityReportEmailSender_en.yaml` | Security Copilot agent manifest — **English** |
+| `openapi_email_sender.yaml` | OpenAPI spec for the API child skill (`SendSecurityReportEmail`) — **Japanese descriptions**. Includes the real region host / workflow GUID |
+| `openapi_email_sender_en.yaml` | OpenAPI spec — **English descriptions**. Includes the real region host / workflow GUID |
+| `SecurityReportEmailSender_LogicApp.json` | ARM template for the Logic App (Consumption) + Office 365 connection — **Japanese** metadata |
+| `SecurityReportEmailSender_LogicApp_en.json` | ARM template — **English** metadata |
+| `.gitignore` | Generic hygiene to avoid accidentally committing secrets (`.env` / `*.secret*` / `*.local.*`). The SAS `sig` is never stored in any file |
+| `SecurityReportEmailSender_card.html` | Plugin card (visual summary, English) |
 
 > **Note: Managed Identity and `Send an email (V2)`**
 > The original spec mixed "grant email delivery permission via Managed Identity" with "use the `sendmail(v2)` action," but the two are technically incompatible. `Send an email (V2)` is an Office 365 Outlook connector action and uses an API connection (OAuth sign-in), not Managed Identity.
@@ -58,10 +60,10 @@ $location = "japaneast"
 # Create the resource group (if not already created)
 az group create --name $rg --location $location
 
-# Deploy the ARM template
+# Deploy the ARM template (use the _en.json template; _ja and _en are identical except metadata language)
 az deployment group create `
   --resource-group $rg `
-  --template-file .\SecurityReportEmailSender_LogicApp.json `
+  --template-file .\SecurityReportEmailSender_LogicApp_en.json `
   --parameters `
     logicAppName=SecurityReportEmailSender `
     location=$location `
@@ -96,32 +98,32 @@ The retrieved callback URL has the following form. Note each value.
 https://<REGION>.logic.azure.com/workflows/<WORKFLOW-ID>/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=<SIGNATURE>
 ```
 
-- `<REGION>` and `<WORKFLOW-ID>` → set in the `servers` server variables (`regionHost` / `workflowId`) of `openapi_email_sender.yaml` (real-value version described below)
+- `<REGION>` and `<WORKFLOW-ID>` → set directly in `servers.url` of `openapi_email_sender.yaml` / `openapi_email_sender_en.yaml` (real values are committed)
 - `<SIGNATURE>` (the `sig` value) → enter as the API key when installing the plugin in Security Copilot
-- `api-version` / `sp` / `sv` values → reflect in each query parameter's `enum` / `default` in `openapi_email_sender.yaml` (defaults are fine)
+- `api-version` / `sp` / `sv` values → reflect in each query parameter's `enum` / `default` in the OpenAPI spec (defaults are fine)
 
 > **Important: Fix the SAS parameters as single-value enums in the OpenAPI spec**
 > `api-version` / `sp` / `sv` are required for SAS signature validation. Security Copilot does not send query parameters that only have a `default` value, so a `default` alone is not transmitted and results in **401 Unauthorized**. To prevent this, each parameter is made a "constant" with `required: true` and a single-value `enum` (e.g., `enum: ["1.0"]`) so it is always sent. Only `sig` is appended via ApiKey auth (QueryParams).
 
 ### 4. Publish the OpenAPI spec
 
-The region host and workflow GUID are environment-specific values. To avoid placing real values in a public repository, the template and the real-value version are separated.
+The region host and workflow GUID are committed directly in the OpenAPI files (`servers.url`). The only true secret is the SAS `sig`, which is never stored in any file and is entered at plugin install time.
 
 | File | Content | Publish |
 |------|---------|---------|
-| `openapi_email_sender.yaml` | Template parameterized with server variables (`regionHost` / `workflowId`). Defaults are placeholders. | ✅ push |
-| `openapi_email_sender.local.yaml` | Version with `servers.url` expanded to the full real URL. Excluded via `.gitignore`. | ❌ do not push |
+| `openapi_email_sender.yaml` | OpenAPI spec with real `servers.url`, Japanese descriptions. | ✅ push |
+| `openapi_email_sender_en.yaml` | OpenAPI spec with real `servers.url`, English descriptions. | ✅ push |
 
-1. Replace `servers.url` in `openapi_email_sender.local.yaml` with the host part (`<REGION>.logic.azure.com`) and workflow GUID (`<WORKFLOW-ID>`) of the callback URL obtained in step 3.
-2. Host the **real-value version** (`openapi_email_sender.local.yaml`) at a publicly accessible URL (e.g., GitHub raw, Azure Blob Storage static site). Because Security Copilot does not expand server variables, host this version that has the full real URL.
-3. Set that URL in the `OpenApiSpecUrl` of `SecurityReportEmailSender_ja.yaml` (initial value is the placeholder `https://<YOUR-HOSTED-OPENAPI-URL>/...`). Do not point it directly at the public repository's template version URL (it will not work as a placeholder).
+1. Confirm `servers.url` in `openapi_email_sender.yaml` / `openapi_email_sender_en.yaml` matches the host part (`<REGION>.logic.azure.com`) and workflow GUID (`<WORKFLOW-ID>`) of the callback URL obtained in step 3.
+2. Push the file to the public repository (e.g., GitHub) so it is accessible via a raw URL.
+3. Set that raw URL in the `OpenApiSpecUrl` of the manifest. The shipped manifests already point at the repository raw URLs (`.../openapi_email_sender.yaml` for `_ja`, `.../openapi_email_sender_en.yaml` for `_en`).
 
-> **Caution:** Treat `sig` (SAS signature), the region host, and the workflow GUID as sensitive information and do not include them in the public repository. Limit real values to `.gitignore`-excluded files such as `openapi_email_sender.local.yaml`.
+> **Caution:** Treat the SAS `sig` (signature) as the sensitive value and never include it in any committed file. The region host and workflow GUID alone are not sufficient to invoke the Logic App without a valid `sig`.
 
 ### 5. Install the agent in Security Copilot
 
 1. Security Copilot > **Manage plugins** > **Custom** > **Add plugin**.
-2. Upload `SecurityReportEmailSender_ja.yaml` (or specify the public URL).
+2. Upload the manifest (`SecurityReportEmailSender_en.yaml` for English, `SecurityReportEmailSender_ja.yaml` for Japanese) or specify the public URL.
 3. When prompted for the **API key** during installation, enter the `sig` value obtained in step 3.
 4. The **Security Report Email Sender** agent becomes enabled.
 
@@ -214,12 +216,14 @@ flowchart LR
 
 | ファイル | 説明 |
 |----------|------|
-| `SecurityReportEmailSender_LogicApp.json` | Logic App (Consumption) + Office 365 コネクションの ARM テンプレート |
-| `SecurityReportEmailSender_ja.yaml` | Security Copilot エージェントのマニフェスト (Agent スキル + API 子スキル) |
-| `openapi_email_sender.yaml` | API 子スキル (`SendSecurityReportEmail`) の OpenAPI 仕様テンプレート (server variables でパラメータ化、公開用) |
-| `openapi_email_sender.local.yaml` | 上記の実値版 (`servers.url` を完全 URL に展開)。**`.gitignore` で除外、公開しない** |
-| `.gitignore` | 実値版・シークレットファイル (`*.local.yaml` / `.env` / `*.secret*` 等) を push 対象から除外 |
-| `SecurityReportEmailSender_card.html` | プラグインカード (視覚的サマリ) |
+| `SecurityReportEmailSender_ja.yaml` | Security Copilot エージェントのマニフェスト — **日本語** (Agent スキル + API 子スキル) |
+| `SecurityReportEmailSender_en.yaml` | Security Copilot エージェントのマニフェスト — **英語** |
+| `openapi_email_sender.yaml` | API 子スキル (`SendSecurityReportEmail`) の OpenAPI 仕様 — **日本語記述**。実リージョンホスト / ワークフロー GUID を含む |
+| `openapi_email_sender_en.yaml` | OpenAPI 仕様 — **英語記述**。実リージョンホスト / ワークフロー GUID を含む |
+| `SecurityReportEmailSender_LogicApp.json` | Logic App (Consumption) + Office 365 コネクションの ARM テンプレート — **日本語** メタデータ |
+| `SecurityReportEmailSender_LogicApp_en.json` | ARM テンプレート — **英語** メタデータ |
+| `.gitignore` | シークレット誤コミット防止用の汎用ルール (`.env` / `*.secret*` / `*.local.*`)。SAS の `sig` はどのファイルにも保存しない |
+| `SecurityReportEmailSender_card.html` | プラグインカード (視覚的サマリ、英語) |
 
 > **メモ: Managed Identity と `Send an email (V2)` について**
 > 当初の仕様では「Managed Identity でメール配信権限を付与」と「`sendmail(v2)` アクションの使用」が併記されていましたが、両者は技術的に両立しません。`Send an email (V2)` は Office 365 Outlook コネクタのアクションで、Managed Identity ではなく API コネクション (OAuth サインイン) を使用します。
@@ -236,10 +240,10 @@ $location = "japaneast"
 # リソースグループ作成 (未作成の場合)
 az group create --name $rg --location $location
 
-# ARM テンプレートをデプロイ
+# ARM テンプレートをデプロイ (_en.json を使用。_ja と _en はメタデータの言語以外は同一)
 az deployment group create `
   --resource-group $rg `
-  --template-file .\SecurityReportEmailSender_LogicApp.json `
+  --template-file .\SecurityReportEmailSender_LogicApp_en.json `
   --parameters `
     logicAppName=SecurityReportEmailSender `
     location=$location `
@@ -272,32 +276,32 @@ az rest --method post `
 https://<REGION>.logic.azure.com/workflows/<WORKFLOW-ID>/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=<SIGNATURE>
 ```
 
-- `<REGION>` と `<WORKFLOW-ID>` → `openapi_email_sender.yaml` の `servers` の server variables (`regionHost` / `workflowId`) に反映 (実値版は後述)
+- `<REGION>` と `<WORKFLOW-ID>` → `openapi_email_sender.yaml` / `openapi_email_sender_en.yaml` の `servers.url` に直接記載 (実値をコミット済み)
 - `<SIGNATURE>` (`sig` の値) → Security Copilot のプラグインインストール時に API キーとして入力
-- `api-version` / `sp` / `sv` の値 → `openapi_email_sender.yaml` の各クエリパラメータの `enum` / `default` に反映 (既定値のままで可)
+- `api-version` / `sp` / `sv` の値 → OpenAPI の各クエリパラメータの `enum` / `default` に反映 (既定値のままで可)
 
 > **重要: SAS パラメータは OpenAPI の単一値 enum で固定する**
 > `api-version` / `sp` / `sv` は SAS 署名の検証に必須です。Security Copilot は OpenAPI の `default` 値のみのクエリパラメータを送信しないため、`default` だけだと送信されず **401 Unauthorized** になります。これを防ぐため、各パラメータを `required: true` かつ単一値の `enum` (例: `enum: ["1.0"]`) として「定数」化し、必ず送信されるようにしています。`sig` のみを ApiKey 認証 (QueryParams) で付与します。
 
 ### 4. OpenAPI 仕様を公開
 
-リージョンホストとワークフロー GUID は環境固有の値です。公開リポジトリに実値を置かないよう、テンプレートと実値版を分離しています。
+リージョンホストとワークフロー GUID は OpenAPI ファイル (`servers.url`) に直接記載しています。唯一の真の機密は SAS の `sig` で、どのファイルにも保存せずプラグインインストール時に入力します。
 
 | ファイル | 内容 | 公開 |
 |------|------|------|
-| `openapi_email_sender.yaml` | server variables (`regionHost` / `workflowId`) でパラメータ化したテンプレート。デフォルトはプレースホルダ。 | ✅ push する |
-| `openapi_email_sender.local.yaml` | `servers.url` を実値の完全 URL に展開した版。`.gitignore` で除外。 | ❌ push しない |
+| `openapi_email_sender.yaml` | 実値の `servers.url`、日本語記述の OpenAPI 仕様。 | ✅ push する |
+| `openapi_email_sender_en.yaml` | 実値の `servers.url`、英語記述の OpenAPI 仕様。 | ✅ push する |
 
-1. `openapi_email_sender.local.yaml` の `servers.url` を、手順3で取得した callback URL のホスト部 (`<REGION>.logic.azure.com`) とワークフロー GUID (`<WORKFLOW-ID>`) に置き換える。
-2. **実値版** (`openapi_email_sender.local.yaml`) を公開アクセス可能な URL (例: GitHub raw、Azure Blob Storage の静的サイト) に配置。Security Copilot は server variables を展開しないため、実値の完全 URL を持つこの版をホストする。
-3. その URL を `SecurityReportEmailSender_ja.yaml` の `OpenApiSpecUrl` (初期値は `https://<YOUR-HOSTED-OPENAPI-URL>/...` のプレースホルダ) に設定。公開リポジトリのテンプレート版 URL をそのまま指定してはいけない (プレースホルダのまま動作しない)。
+1. `openapi_email_sender.yaml` / `openapi_email_sender_en.yaml` の `servers.url` が、手順3で取得した callback URL のホスト部 (`<REGION>.logic.azure.com`) とワークフロー GUID (`<WORKFLOW-ID>`) に一致していることを確認。
+2. ファイルを公開リポジトリ (GitHub 等) に push し、raw URL でアクセス可能にする。
+3. その raw URL をマニフェストの `OpenApiSpecUrl` に設定。同梱のマニフェストはすでにリポジトリの raw URL (`_ja` は `.../openapi_email_sender.yaml`、`_en` は `.../openapi_email_sender_en.yaml`) を指しています。
 
-> **注意:** `sig` (SAS 署名)、リージョンホスト、ワークフロー GUID は機密情報として扱い、公開リポジトリには含めないでください。実値は `openapi_email_sender.local.yaml` 等の `.gitignore` 対象ファイルに限定します。
+> **注意:** 機密値は SAS の `sig` (署名) で、どのコミットファイルにも含めないでください。リージョンホストとワークフロー GUID だけでは、有効な `sig` なしに Logic App を呼び出せません。
 
 ### 5. Security Copilot にエージェントをインストール
 
 1. Security Copilot > **プラグインの管理** > **カスタム** > **プラグインの追加**。
-2. `SecurityReportEmailSender_ja.yaml` をアップロード (または公開 URL を指定)。
+2. マニフェスト (英語は `SecurityReportEmailSender_en.yaml`、日本語は `SecurityReportEmailSender_ja.yaml`) をアップロード (または公開 URL を指定)。
 3. インストール時に **API キー** の入力を求められたら、手順 3 で取得した `sig` の値を入力。
 4. エージェント **Security Report Email Sender** が有効化される。
 

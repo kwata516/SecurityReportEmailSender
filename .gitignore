@@ -1,11 +1,12 @@
-# 実値 (環境固有) を含むファイルは公開リポジトリに push しない
-# 実リージョンホスト / ワークフロー GUID を含む OpenAPI 実値版
-openapi_email_sender.local.yaml
+# Region host and workflow GUID are intentionally committed in the OpenAPI files (user-approved).
+# The only true secret is the SAS signature (sig), which is never stored in any file
+# (it is entered at plugin install time). The rules below are generic hygiene to avoid
+# accidentally committing local overrides or secrets.
 *.local.yaml
 *.local.yml
 *.local.json
 
-# SAS 署名 (sig) やシークレットを誤って保存したファイル
+# Files that might accidentally hold the SAS signature (sig) or other secrets
 *.secret
 *.secret.*
 .env

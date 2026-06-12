@@ -1,0 +1,109 @@
+Descriptor:
+  Name: SecurityReportEmailSender
+  DisplayName: Security Report Email Sender
+  Description: >-
+    An agent that formats Security Copilot investigation results as an HTML email and sends them
+    to an external address via an Azure Logic App (Webhook). The agent (GPT) formats the result as
+    HTML and calls an API child skill to invoke the Logic App, which delivers the message through
+    Office 365 Outlook's Send an email (V2). The recipient and sender are fixed on the Logic App side.
+  DescriptionForModel: >-
+    An agent that formats a Security Copilot investigation result as an HTML email and sends it
+    via an Azure Logic App webhook. Invoke this agent when the user asks to email, send, or deliver
+    an investigation result, report, or summary. The agent formats the content as HTML and
+    calls the SendSecurityReportEmail API child skill. The recipient (To) and sender (From)
+    are fixed on the Logic App side.
+  Icon: ''
+  SupportedAuthTypes:
+    - ApiKey
+    # To switch to OAuth 2.0 in the future, enable the entry below and replace the ApiKey above.
+    # Envisioned design: place Azure API Management or App Service Easy Auth (Entra) in front of
+    # the Logic App and protect it with a Bearer token.
+    # - OAuthAuthorizationCodeFlow
+  Authorization:
+    # --- Current: SAS token authentication (used when the API child skill calls the Logic App) ---
+    # Appends the `sig` (SAS signature) from the Logic App HTTP trigger callback URL as a query
+    # parameter. The user enters the `sig` value at install time.
+    Type: APIKey
+    Key: sig
+    Location: QueryParams
+    AuthScheme: ''
+    # --- Future: OAuth 2.0 authentication (reference only; currently commented out) ---
+    # Type: OAuthAuthorizationCodeFlow
+    # AuthorizationEndpoint: https://login.microsoftonline.com/<TENANT-ID>/oauth2/v2.0/authorize
+    # TokenEndpoint: https://login.microsoftonline.com/<TENANT-ID>/oauth2/v2.0/token
+    # Scopes: <API-MANAGEMENT-OR-EASYAUTH-SCOPE>
+    # AuthorizationContentType: application/x-www-form-urlencoded
+
+AgentDefinitions:
+  - Name: SecurityReportEmailSender
+    DisplayName: Security Report Email Sender
+    Description: >-
+      An agent that formats Security Copilot investigation results as an HTML email and sends them
+      to an external address via a Logic App.
+    Publisher: Custom
+    Product: Security
+    AgentSingleInstanceConstraint: None
+    RequiredSkillsets:
+      - SecurityReportEmailSender
+    Triggers:
+      - Name: Default
+        DefaultPollPeriodSeconds: 0
+        ProcessSkill: SecurityReportEmailSender.SendInvestigationReportByEmail
+        FetchSkill: ''
+
+SkillGroups:
+  - Format: Agent
+    Skills:
+      - Name: SendInvestigationReportByEmail
+        DisplayName: Send Investigation Report by Email
+        Description: >-
+          Formats the investigation result as an HTML email and calls the API child skill to invoke
+          the Logic App for delivery. The recipient and sender are fixed on the Logic App side.
+        Interfaces:
+          - Agent
+        Inputs:
+          - Name: ReportContent
+            Description: >-
+              The investigation result body to email. Pass the output of the previous Security Copilot
+              session or text specified by the user.
+            Required: true
+          - Name: Subject
+            Description: >-
+              Email subject (optional). If omitted, the agent generates a subject from the report content.
+            Required: false
+        Settings:
+          Model: gpt-4.1
+          Instructions: |
+            # Mission
+            You are an assistant that delivers Security Copilot investigation results by email.
+            Format the given investigation result into a clean, readable HTML email and send it
+            using the SendSecurityReportEmail skill. The recipient and sender are fixed on the
+            Logic App side, so you do not need to specify them.
+
+            # Workflow
+            1. Format the input `ReportContent` into a structured HTML email body.
+               - Use appropriate HTML tags such as headings (`<h1>`, `<h2>`), paragraphs (`<p>`),
+                 bullet lists (`<ul><li>`), and tables (`<table>`).
+               - Keep inline CSS minimal and within what renders correctly in email clients.
+            2. Decide the subject. If `Subject` is provided, use it. Otherwise generate a concise,
+               plain-text subject that captures the key points of the investigation result.
+            3. Call the SendSecurityReportEmail skill.
+               - Pass the subject as-is (plain text) in `Subject`.
+               - Pass the HTML body as-is (without URL encoding) in `Body`.
+            4. Report the delivery result (success/failure) to the user.
+
+            # Output
+            Report the result of the send operation in the following form:
+            - Delivery status (success / failure)
+            - Subject (human-readable form)
+            - On failure, the error details and likely cause
+        ChildSkills:
+          - SendSecurityReportEmail
+
+  - Format: API
+    Settings:
+      # Public URL of the OpenAPI spec.
+      # Points to the raw URL of openapi_email_sender_en.yaml in the public repository.
+      # Region host and workflow GUID are included directly in that file (the user permits this);
+      # only the SAS `sig` is supplied separately via ApiKey auth (QueryParams) at install time.
+      OpenApiSpecUrl: https://raw.githubusercontent.com/kwata516/SecurityReportEmailSender/main/openapi_email_sender_en.yaml

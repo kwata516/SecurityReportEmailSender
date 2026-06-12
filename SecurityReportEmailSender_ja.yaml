@@ -102,8 +102,7 @@ SkillGroups:
   - Format: API
     Settings:
       # OpenAPI 仕様の公開 URL。
-      # README 手順4 でホストした 「実値版」 (openapi_email_sender.local.yaml を
-      # 展開した完全 URL 版) の公開 URL に置き換える。
-      # 公開リポジトリの openapi_email_sender.yaml はプレースホルダ入りの
-      # テンプレートのため、ここにそのまま指定しても動作しない。
-      OpenApiSpecUrl: https://<YOUR-HOSTED-OPENAPI-URL>/openapi_email_sender.yaml
+      # 公開リポジトリの openapi_email_sender.yaml の raw URL を指定する。
+      # リージョンホストとワークフロー GUID は同ファイルに直接記載済み (ユーザー許可済み)。
+      # SAS の sig のみインストール時に ApiKey 認証 (QueryParams) で別途付与する。
+      OpenApiSpecUrl: https://raw.githubusercontent.com/kwata516/SecurityReportEmailSender/main/openapi_email_sender.yaml
