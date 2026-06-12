@@ -1,0 +1,109 @@
+Descriptor:
+  Name: SecurityReportEmailSender
+  DisplayName: Security Report Email Sender
+  Description: >-
+    Security Copilot の調査結果を HTML メールに整形し、Logic App (Webhook) 経由で
+    外部のメールアドレスに送信するエージェント。エージェント (GPT) が調査結果を HTML に整形し、
+    API 子スキル経由で Logic App を呼び出して
+    Office 365 Outlook の Send an email (V2) で送信する。宛先・送信元は Logic App 側で固定。
+  DescriptionForModel: >-
+    An agent that formats a Security Copilot investigation result as an HTML email and sends it
+    via an Azure Logic App webhook. Invoke this agent when the user asks to email, send, or deliver
+    an investigation result, report, or summary. The agent formats the content as HTML and
+    calls the SendSecurityReportEmail API child skill. The recipient (To) and sender (From)
+    are fixed on the Logic App side.
+  Icon: ''
+  SupportedAuthTypes:
+    - ApiKey
+    # 将来 OAuth2.0 に切り替える場合は以下を有効化し、上の ApiKey を置き換える。
+    # Logic App の前段に Azure API Management または App Service Easy Auth (Entra) を配置し、
+    # Bearer トークンで保護する構成を想定。
+    # - OAuthAuthorizationCodeFlow
+  Authorization:
+    # --- 現行: SAS トークン認証 (API 子スキルが Logic App を呼び出す際に使用) ---
+    # Logic App の HTTP トリガー callback URL に含まれる `sig` (SAS 署名) を
+    # クエリパラメータとして付与する。インストール時にユーザーが sig の値を入力する。
+    Type: APIKey
+    Key: sig
+    Location: QueryParams
+    AuthScheme: ''
+    # --- 将来: OAuth 2.0 認証 (参考。現在はコメントアウト) ---
+    # Type: OAuthAuthorizationCodeFlow
+    # AuthorizationEndpoint: https://login.microsoftonline.com/<TENANT-ID>/oauth2/v2.0/authorize
+    # TokenEndpoint: https://login.microsoftonline.com/<TENANT-ID>/oauth2/v2.0/token
+    # Scopes: <API-MANAGEMENT-OR-EASYAUTH-SCOPE>
+    # AuthorizationContentType: application/x-www-form-urlencoded
+
+AgentDefinitions:
+  - Name: SecurityReportEmailSender
+    DisplayName: Security Report Email Sender
+    Description: >-
+      Security Copilot の調査結果を HTML メールに整形し、Logic App 経由で外部に送信するエージェント。
+    Publisher: Custom
+    Product: Security
+    AgentSingleInstanceConstraint: None
+    RequiredSkillsets:
+      - SecurityReportEmailSender
+    Triggers:
+      - Name: Default
+        DefaultPollPeriodSeconds: 0
+        ProcessSkill: SecurityReportEmailSender.SendInvestigationReportByEmail
+        FetchSkill: ''
+
+SkillGroups:
+  - Format: Agent
+    Skills:
+      - Name: SendInvestigationReportByEmail
+        DisplayName: Send Investigation Report by Email
+        Description: >-
+          調査結果を HTML メールに整形し、API 子スキル経由で Logic App を
+          呼び出してメール送信する。宛先・送信元は Logic App 側で固定。
+        Interfaces:
+          - Agent
+        Inputs:
+          - Name: ReportContent
+            Description: >-
+              メールで送信する調査結果の本文。直前の Security Copilot セッションの出力や、
+              ユーザーが指定したテキストを渡す。
+            Required: true
+          - Name: Subject
+            Description: >-
+              メールの件名 (任意)。省略時はエージェントが調査結果の内容から件名を生成する。
+            Required: false
+        Settings:
+          Model: gpt-4.1
+          Instructions: |
+            # Mission
+            あなたは、Security Copilot の調査結果をメールで配信するアシスタントです。
+            与えられた調査結果を、見やすい HTML メールに整形し、SendSecurityReportEmail
+            スキルを使って送信します。宛先・送信元は Logic App 側で固定されているため、
+            あなたが指定する必要はありません。
+
+            # Workflow
+            1. 入力 `ReportContent` を、構造化された HTML メール本文に整形する。
+               - 見出し (`<h1>`, `<h2>`)、段落 (`<p>`)、箇条書き (`<ul><li>`)、
+                 表 (`<table>`) などの HTML タグを適切に使う。
+               - インライン CSS は最小限にとどめ、メールクライアントで崩れない範囲で使う。
+            2. 件名を決定する。`Subject` が指定されていればそれを使う。
+               指定がなければ調査結果の要点を表す簡潔な件名 (プレーンテキスト) を生成する。
+            3. SendSecurityReportEmail スキルを呼び出す。
+               - `Subject` には件名をそのまま (プレーンテキスト) 渡す。
+               - `Body` には HTML 本文をそのまま (URL エンコードせずに) 渡す。
+            4. 送信結果 (成功/失敗) をユーザーに報告する。
+
+            # Output
+            送信処理の結果を以下の形式で報告する:
+            - 送信ステータス (成功 / 失敗)
+            - 件名 (デコード後の人間可読な形式)
+            - 失敗した場合はエラー内容と考えられる原因
+        ChildSkills:
+          - SendSecurityReportEmail
+
+  - Format: API
+    Settings:
+      # OpenAPI 仕様の公開 URL。
+      # README 手順4 でホストした 「実値版」 (openapi_email_sender.local.yaml を
+      # 展開した完全 URL 版) の公開 URL に置き換える。
+      # 公開リポジトリの openapi_email_sender.yaml はプレースホルダ入りの
+      # テンプレートのため、ここにそのまま指定しても動作しない。
+      OpenApiSpecUrl: https://<YOUR-HOSTED-OPENAPI-URL>/openapi_email_sender.yaml

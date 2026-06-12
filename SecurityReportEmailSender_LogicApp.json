@@ -1,0 +1,210 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Security Copilot の調査結果を外部にメール送信する Logic App (Consumption)。HTTP Webhook (SAS) で待ち受け、URL エンコードされた Subject/Body を URL デコードし、Office 365 Outlook の Send an email (V2) で送信する。"
+  },
+  "parameters": {
+    "logicAppName": {
+      "defaultValue": "SecurityReportEmailSender",
+      "type": "String",
+      "metadata": {
+        "description": "Logic App の名前"
+      }
+    },
+    "location": {
+      "defaultValue": "japaneast",
+      "type": "String",
+      "metadata": {
+        "description": "デプロイ先リージョン"
+      }
+    },
+    "office365ConnectionName": {
+      "defaultValue": "office365-securityreport",
+      "type": "String",
+      "metadata": {
+        "description": "Office 365 Outlook API コネクションの名前。デプロイ後に送信専用サービスアカウントで OAuth 認可が必要。"
+      }
+    },
+    "mailTo": {
+      "defaultValue": "soc-report@contoso.com",
+      "type": "String",
+      "metadata": {
+        "description": "メールの宛先 (To)。Logic App 側で固定する。複数指定する場合はセミコロン区切り。"
+      }
+    },
+    "mailFrom": {
+      "defaultValue": "security-noreply@contoso.com",
+      "type": "String",
+      "metadata": {
+        "description": "送信元 (From / Send as) のメールアドレス。コネクションを認可したアカウントが Send as / Send on behalf 権限を持つ必要がある。"
+      }
+    }
+  },
+  "variables": {
+    "office365ConnectionId": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/office365')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[parameters('office365ConnectionName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "displayName": "Office 365 Outlook (Security Report Sender)",
+        "api": {
+          "id": "[variables('office365ConnectionId')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', parameters('office365ConnectionName'))]"
+      ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "type": "Object",
+              "defaultValue": {}
+            },
+            "mailTo": {
+              "type": "String",
+              "defaultValue": "[parameters('mailTo')]"
+            },
+            "mailFrom": {
+              "type": "String",
+              "defaultValue": "[parameters('mailFrom')]"
+            }
+          },
+          "triggers": {
+            "manual": {
+              "type": "Request",
+              "kind": "Http",
+              "inputs": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "Subject": {
+                      "type": "string"
+                    },
+                    "Body": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["Subject", "Body"]
+                }
+              }
+            }
+          },
+          "actions": {
+            "Parse_Request_Body": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@triggerBody()",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "Subject": {
+                      "type": "string"
+                    },
+                    "Body": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "runAfter": {}
+            },
+            "Send_an_email_(V2)": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['office365']['connectionId']"
+                  }
+                },
+                "method": "post",
+                "path": "/v2/Mail",
+                "body": {
+                  "To": "@parameters('mailTo')",
+                  "From": "@parameters('mailFrom')",
+                  "Subject": "@{body('Parse_Request_Body')?['Subject']}",
+                  "Body": "@{body('Parse_Request_Body')?['Body']}",
+                  "Importance": "Normal"
+                }
+              },
+              "runAfter": {
+                "Parse_Request_Body": ["Succeeded"]
+              }
+            },
+            "Response_Success": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 200,
+                "body": {
+                  "status": "success",
+                  "message": "Email sent to @{parameters('mailTo')}"
+                }
+              },
+              "runAfter": {
+                "Send_an_email_(V2)": ["Succeeded"]
+              }
+            },
+            "Response_Failure": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 500,
+                "body": {
+                  "status": "failure",
+                  "message": "Failed to send email: @{body('Send_an_email_(V2)')}"
+                }
+              },
+              "runAfter": {
+                "Send_an_email_(V2)": ["Failed", "TimedOut"]
+              }
+            }
+          },
+          "outputs": {}
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('office365ConnectionName'))]",
+                "connectionName": "[parameters('office365ConnectionName')]",
+                "id": "[variables('office365ConnectionId')]"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "logicAppName": {
+      "type": "string",
+      "value": "[parameters('logicAppName')]"
+    },
+    "logicAppResourceId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Logic/workflows', parameters('logicAppName'))]"
+    },
+    "logicAppManagedIdentityPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Logic/workflows', parameters('logicAppName')), '2019-05-01', 'full').identity.principalId]"
+    }
+  }
+}

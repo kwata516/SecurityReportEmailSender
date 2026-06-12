@@ -1,0 +1,12 @@
+# 実値 (環境固有) を含むファイルは公開リポジトリに push しない
+# 実リージョンホスト / ワークフロー GUID を含む OpenAPI 実値版
+openapi_email_sender.local.yaml
+*.local.yaml
+*.local.yml
+*.local.json
+
+# SAS 署名 (sig) やシークレットを誤って保存したファイル
+*.secret
+*.secret.*
+.env
+.env.*
