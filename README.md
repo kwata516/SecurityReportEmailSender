@@ -8,6 +8,7 @@
 
 # English
 
+This is a test program that uses an API plugin to trigger a webhook from Security Copilot. If your goal is to trigger a Logic App from Security Copilot, it’s easier to use the Logic App plugin.
 An **agent** that formats Security Copilot investigation results as an HTML email and sends them to an external address via an Azure Logic App (Webhook). On the Security Copilot side it runs as an agent (GPT) that formats the result as HTML and then calls an API child skill to invoke the Logic App. The HTML is passed as-is (without URL encoding) in the JSON body.
 
 ## Architecture
@@ -187,7 +188,7 @@ It currently uses SAS token authentication. To switch to OAuth 2.0 in the future
 <a id="日本語"></a>
 
 # 日本語
-
+これはSecurity CopilotからAPIプラグインを用いてWebHookを呼び出す検証用のプログラムです。Security CopilotからLogicAppを呼び出すのが目的であればLogicApp Pluginを使うほうが簡単にできます。
 Security Copilot の調査結果を HTML メールに整形し、Azure Logic App (Webhook) 経由で外部のメールアドレスに送信する **エージェント** です。Security Copilot 側はエージェント (GPT) として動作し、調査結果を HTML に整形してから API 子スキルで Logic App を呼び出します。HTML はそのまま (URL エンコードせずに) JSON ボディで受け渡します。
 
 ## 構成
